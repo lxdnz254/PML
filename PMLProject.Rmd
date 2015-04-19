@@ -1,0 +1,116 @@
+---
+title: "Practical Machine Learning Project"
+author: "Alex McBride"
+date: "Thursday, April 09, 2015"
+output: html_document
+---
+
+Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+```{r librarys, results='hide'}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+```
+
+
+```{r load data}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./pml-training.csv"
+testFile  <- "./pml-testing.csv"
+
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile, method="curl")
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile, method="curl")
+}
+
+```
+
+
+
+
+```{r read data}
+trainingRaw <- read.csv(file="pml-training.csv", header=TRUE, as.is = TRUE, 
+                        stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+testingRaw <- read.csv(file="pml-testing.csv", header=TRUE, as.is = TRUE, 
+                       stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+
+trainingRaw$classe <- as.factor(trainingRaw$classe)  
+
+
+```
+
+
+Which variables in the test dataset have zero NAs?
+Belt, arm, dumbbell, and forearm variables that do not have any missing values in the test dataset will be predictor candidates.
+
+```{r Na's & names}
+trainClean <- trainingRaw[, colSums(is.na(trainingRaw)) == 0] 
+testClean <- testingRaw[, colSums(is.na(testingRaw)) == 0]
+classe <- trainClean$classe
+trainRemove <- grepl("^X|timestamp|window", names(trainClean))
+trainClean <- trainClean[, !trainRemove]
+trainClean <- trainClean[, sapply(trainClean, is.numeric)]
+trainClean$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(testClean))
+testClean <- testClean[, !testRemove]
+testClean <- testClean[, sapply(testClean, is.numeric)]
+
+```
+
+```{r slice data}
+set.seed(5872) # For reproducibile purpose
+inTrain <- createDataPartition(trainClean$classe, p=0.70, list=F)
+trainData <- trainClean[inTrain, ]
+crossValidateData <- trainClean[-inTrain, ]
+```
+
+```{r Data modeling - Random Forest, results='hide'}
+modFit <- train(classe~.,data = trainData, method="rf", 
+                        trControl = trainControl(method ="cv", 5),
+                        ntree=250, do.trace=50)
+```
+
+```{r show model}
+modFit
+```
+```{r plot treemodel}
+treeModel <- rpart(classe ~ ., data=trainData, method="class")
+prp(treeModel)
+```
+
+
+```{r training prediction}
+trainPred <- predict(modFit, trainData)
+confusionMatrix(trainPred, trainData$classe)
+```
+
+```{r crossvalidate prediction}
+cvPred <- predict(modFit, crossValidateData)
+confusionMatrix(cvPred, crossValidateData$classe)
+```
+
+```{r test data result}
+result <- predict(modFit, testClean[, -length(names(testClean))]) # -length removes problem_id
+result
+```
+
+```{r write answers}
+pml_write_files <- function(x){
+  n <- length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(result)
+```
+
